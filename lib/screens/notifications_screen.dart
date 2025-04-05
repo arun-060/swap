@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../providers/language_provider.dart';
 
 class NotificationsScreen extends StatefulWidget {
@@ -25,13 +25,13 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _loadNotifications() async {
-    final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
+    final supabaseClient = supabase.Supabase.instance.client;
+    final user = supabaseClient.auth.currentUser;
     if (user == null) return;
 
     try {
       setState(() => _isLoading = true);
-      final response = await supabase
+      final response = await supabaseClient
           .from('notifications')
           .select()
           .eq('user_id', user.id)
@@ -54,12 +54,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _loadNotificationSettings() async {
-    final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
+    final supabaseClient = supabase.Supabase.instance.client;
+    final user = supabaseClient.auth.currentUser;
     if (user == null) return;
 
     try {
-      final response = await supabase
+      final response = await supabaseClient
           .from('notification_settings')
           .select()
           .eq('user_id', user.id)
@@ -76,12 +76,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _updateNotificationSettings() async {
-    final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
+    final supabaseClient = supabase.Supabase.instance.client;
+    final user = supabaseClient.auth.currentUser;
     if (user == null) return;
 
     try {
-      await supabase.from('notification_settings').upsert({
+      await supabaseClient.from('notification_settings').upsert({
         'user_id': user.id,
         'push_enabled': _pushEnabled,
         'email_enabled': _emailEnabled,
@@ -104,12 +104,12 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   Future<void> _clearAllNotifications() async {
-    final supabase = Supabase.instance.client;
-    final user = supabase.auth.currentUser;
+    final supabaseClient = supabase.Supabase.instance.client;
+    final user = supabaseClient.auth.currentUser;
     if (user == null) return;
 
     try {
-      await supabase
+      await supabaseClient
           .from('notifications')
           .delete()
           .eq('user_id', user.id);

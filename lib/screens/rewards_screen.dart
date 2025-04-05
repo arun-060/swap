@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' as supabase;
 import '../models/rewards.dart';
 import '../services/rewards_service.dart';
+import '../providers/language_provider.dart';
 
 class RewardsScreen extends StatefulWidget {
   const RewardsScreen({super.key});
@@ -15,12 +17,50 @@ class _RewardsScreenState extends State<RewardsScreen> {
   final RewardsService _rewardsService = RewardsService();
   late Future<UserRewards> _userRewardsFuture;
   late String _userId;
+  int _swapCoinsBalance = 0;
+  List<Map<String, dynamic>> _transactions = [];
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _userId = Supabase.instance.client.auth.currentUser!.id;
+    _userId = supabase.Supabase.instance.client.auth.currentUser!.id;
     _userRewardsFuture = _rewardsService.getUserRewards(_userId);
+    _loadRewardsData();
+  }
+
+  Future<void> _loadRewardsData() async {
+    try {
+      final supabaseClient = supabase.Supabase.instance.client;
+      final user = supabaseClient.auth.currentUser;
+
+      if (user != null) {
+        // Get wallet balance
+        final walletResponse = await supabaseClient
+            .from('user_wallets')
+            .select('swap_coins_balance')
+            .eq('user_id', user.id)
+            .single();
+
+        // Get transaction history
+        final transactionsResponse = await supabaseClient
+            .from('wallet_transactions')
+            .select()
+            .eq('user_id', user.id)
+            .order('created_at', ascending: false);
+
+        setState(() {
+          _swapCoinsBalance = walletResponse['swap_coins_balance'] ?? 0;
+          _transactions = List<Map<String, dynamic>>.from(transactionsResponse);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      print('Error loading rewards data: $e');
+      setState(() {
+        _isLoading = false;
+      });
+    }
   }
 
   Future<void> _shareApp() async {
@@ -73,134 +113,105 @@ class _RewardsScreenState extends State<RewardsScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final languageProvider = Provider.of<LanguageProvider>(context);
+
+    if (_isLoading) {
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
+    }
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('My Rewards'),
+        title: Text(languageProvider.getTranslatedText('rewards')),
       ),
-      body: FutureBuilder<UserRewards>(
-        future: _userRewardsFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(child: CircularProgressIndicator());
-          }
-
-          if (snapshot.hasError) {
-            return Center(
-              child: Text('Error: ${snapshot.error}'),
-            );
-          }
-
-          final rewards = snapshot.data!;
-
-          return SingleChildScrollView(
-            child: Column(
-              children: [
-                // Coins Card
-                Card(
-                  margin: const EdgeInsets.all(16),
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        const Text(
-                          'Available Coins',
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          '${rewards.coins}',
-                          style: const TextStyle(
-                            fontSize: 32,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.amber,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        Text(
-                          'Worth ₹${(rewards.coins / 10).toStringAsFixed(2)}',
-                          style: TextStyle(
-                            fontSize: 16,
-                            color: Colors.grey[600],
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        SizedBox(
-                          width: double.infinity,
-                          child: ElevatedButton(
-                            onPressed: rewards.coins >= 100
-                                ? () => _redeemCoins(rewards.coins)
-                                : null,
-                            child: const Text('Redeem Coins'),
-                          ),
-                        ),
-                      ],
-                    ),
+      body: RefreshIndicator(
+        onRefresh: _loadRewardsData,
+        child: SingleChildScrollView(
+          child: Column(
+            children: [
+              // Swap Coins Balance Card
+              Card(
+                margin: const EdgeInsets.all(16),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.stars,
+                        size: 48,
+                        color: Colors.amber,
+                      ),
+                      const SizedBox(height: 8),
+                      Text(
+                        '$_swapCoinsBalance',
+                        style: Theme.of(context).textTheme.headlineLarge,
+                      ),
+                      const Text('Swap Coins'),
+                      const SizedBox(height: 16),
+                      ElevatedButton.icon(
+                        onPressed: _shareApp,
+                        icon: const Icon(Icons.share),
+                        label: const Text('Share & Earn 100 Coins'),
+                      ),
+                    ],
                   ),
                 ),
+              ),
 
-                // Share Card
-                Card(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  child: ListTile(
-                    leading: const Icon(Icons.share, color: Colors.blue),
-                    title: const Text('Share & Earn'),
-                    subtitle: const Text('Share the app with friends and earn 100 coins'),
-                    trailing: const Icon(Icons.chevron_right),
-                    onTap: _shareApp,
-                  ),
-                ),
-
-                // Transactions
-                const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
+              // Transaction History
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
                       'Transaction History',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      style: Theme.of(context).textTheme.titleLarge,
                     ),
-                  ),
+                    const SizedBox(height: 8),
+                    ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: _transactions.length,
+                      itemBuilder: (context, index) {
+                        final transaction = _transactions[index];
+                        return Card(
+                          child: ListTile(
+                            leading: Icon(
+                              transaction['type'] == 'earn'
+                                  ? Icons.add_circle
+                                  : Icons.remove_circle,
+                              color: transaction['type'] == 'earn'
+                                  ? Colors.green
+                                  : Colors.red,
+                            ),
+                            title: Text(transaction['description']),
+                            subtitle: Text(
+                              DateTime.parse(transaction['created_at'])
+                                  .toLocal()
+                                  .toString()
+                                  .split('.')[0],
+                            ),
+                            trailing: Text(
+                              '${transaction['type'] == 'earn' ? '+' : '-'}${transaction['amount']}',
+                              style: TextStyle(
+                                color: transaction['type'] == 'earn'
+                                    ? Colors.green
+                                    : Colors.red,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ],
                 ),
-
-                ListView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: rewards.transactions.length,
-                  itemBuilder: (context, index) {
-                    final transaction = rewards.transactions[index];
-                    return ListTile(
-                      leading: Icon(
-                        transaction.type == 'referral'
-                            ? Icons.person_add
-                            : transaction.type == 'purchase'
-                                ? Icons.shopping_bag
-                                : Icons.redeem,
-                        color: transaction.coins > 0 ? Colors.green : Colors.red,
-                      ),
-                      title: Text(transaction.description),
-                      subtitle: Text(
-                        transaction.createdAt.toString().split('.')[0],
-                      ),
-                      trailing: Text(
-                        '${transaction.coins > 0 ? '+' : ''}${transaction.coins}',
-                        style: TextStyle(
-                          color: transaction.coins > 0 ? Colors.green : Colors.red,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          );
-        },
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
