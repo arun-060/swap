@@ -7,9 +7,6 @@ import 'package:share_plus/share_plus.dart';
 import '../providers/cart_provider.dart';
 import '../providers/language_provider.dart';
 import '../models/cart_item.dart';
-import 'product_detail_screen.dart';
-import 'category_products_screen.dart';
-import '../widgets/product_card.dart';
 import '../widgets/loading_indicator.dart';
 
 class MainScreen extends StatefulWidget {
@@ -161,42 +158,165 @@ class _MainScreenState extends State<MainScreen> {
   }
 
   void _shareProduct(Map<String, dynamic> product) async {
-    final referralCode = await _getReferralCode();
-    final message = '''
-Check out this amazing product on SWAP!
+    try {
+      final supabase = Supabase.instance.client;
+      final user = supabase.auth.currentUser;
+      
+      if (user == null) {
+        Navigator.pushNamed(context, '/login');
+        return;
+      }
+
+      // Get user's referral code
+      final userProfile = await supabase
+          .from('user_profiles')
+          .select('referral_code, coins')
+          .eq('user_id', user.id)
+          .single();
+
+      final referralCode = userProfile['referral_code'] ?? '';
+      final currentCoins = userProfile['coins'] as int? ?? 0;
+      final productPrice = product['original_price'] as num;
+      final rewardCoins = (productPrice / 2).floor(); // Half of product price as coins
+
+      final message = '''
+🛍️ Check out this amazing product on SWAP!
 
 ${product['name']}
 Price: ₹${product['original_price']}
 ${product['description']}
 
-Use my referral code: $referralCode to get 100 coins!
-Download SWAP now: https://yourapp.com/download
+💰 Use my referral code: $referralCode
+🎁 Download SWAP and get 100 coins FREE!
+📲 https://yourapp.com/download
 ''';
-    
-    // Share to all available platforms
-    await Share.share(
-      message,
-      subject: 'Check out this product on SWAP!',
-      sharePositionOrigin: const Rect.fromLTWH(0, 0, 100, 100),
-    );
-  }
 
-  Future<String> _getReferralCode() async {
-    try {
-      final supabaseClient = supabase.Supabase.instance.client;
-      final user = supabaseClient.auth.currentUser;
-      if (user != null) {
-        final response = await supabaseClient
-            .from('user_profiles')
-            .select('referral_code')
-            .eq('user_id', user.id)
-            .single();
-        return response['referral_code'] ?? '';
+      // Share to all available platforms
+      await Share.share(
+        message,
+        subject: 'Check out this product on SWAP!',
+        sharePositionOrigin: const Rect.fromLTWH(0, 0, 100, 100),
+      );
+
+      // Award coins for sharing
+      await supabase
+          .from('user_profiles')
+          .update({
+            'coins': currentCoins + rewardCoins,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('user_id', user.id);
+
+      // Record the sharing activity
+      await supabase
+          .from('sharing_history')
+          .insert({
+            'user_id': user.id,
+            'product_id': product['id'],
+            'coins_earned': rewardCoins,
+            'created_at': DateTime.now().toIso8601String(),
+          });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Congratulations! You earned $rewardCoins coins for sharing'),
+            backgroundColor: Colors.green,
+          ),
+        );
       }
     } catch (e) {
-      debugPrint('Error getting referral code: $e');
+      debugPrint('Error sharing product: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error sharing product. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
-    return '';
+  }
+
+  Future<void> _shareApp() async {
+    try {
+      final supabase = Supabase.instance.client;
+      final user = supabase.auth.currentUser;
+      
+      if (user == null) {
+        Navigator.pushNamed(context, '/login');
+        return;
+      }
+
+      // Get user's referral code and current coins
+      final userProfile = await supabase
+          .from('user_profiles')
+          .select('referral_code, coins')
+          .eq('user_id', user.id)
+          .single();
+
+      final referralCode = userProfile['referral_code'] ?? '';
+      final currentCoins = userProfile['coins'] as int? ?? 0;
+
+      final message = '''
+🎉 Join me on SWAP - The Best Price Comparison App!
+
+💰 Compare prices across stores
+🛍️ Find the best deals
+🎁 Earn rewards on every purchase
+🤝 Share with friends and earn coins
+
+Use my referral code: $referralCode
+Get 100 coins FREE on signup!
+
+📲 Download now: https://yourapp.com/download
+''';
+
+      // Share to all available platforms
+      await Share.share(
+        message,
+        subject: 'Join me on SWAP!',
+        sharePositionOrigin: const Rect.fromLTWH(0, 0, 100, 100),
+      );
+
+      // Award coins for sharing app
+      await supabase
+          .from('user_profiles')
+          .update({
+            'coins': currentCoins + 100,
+            'updated_at': DateTime.now().toIso8601String(),
+          })
+          .eq('user_id', user.id);
+
+      // Record the app sharing activity
+      await supabase
+          .from('sharing_history')
+          .insert({
+            'user_id': user.id,
+            'is_app_share': true,
+            'coins_earned': 100,
+            'created_at': DateTime.now().toIso8601String(),
+          });
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Congratulations! You earned 100 coins for sharing SWAP'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Error sharing app: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Error sharing app. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   Widget _buildProductCard(Map<String, dynamic> product) {
@@ -330,34 +450,33 @@ Download SWAP now: https://yourapp.com/download
 
     return Scaffold(
       appBar: AppBar(
-        title: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.person_outline),
-              onPressed: () {
-                Navigator.pushNamed(context, '/profile');
-              },
-            ),
-            const Text(
-              'SWAP',
-              style: TextStyle(
-                fontSize: 24,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFFFF8C00),
-              ),
-            ),
-            IconButton(
-              icon: const Icon(Icons.settings_outlined),
-              onPressed: () {
-                Navigator.pushNamed(context, '/settings');
-              },
-            ),
-          ],
+        leading: IconButton(
+          icon: const Icon(Icons.person),
+          onPressed: () {
+            Navigator.pushNamed(context, '/profile');
+          },
+        ),
+        title: const Text(
+          'SWAP',
+          style: TextStyle(
+            fontSize: 24,
+            fontWeight: FontWeight.bold,
+            color: Color(0xFFFF8C00),
+          ),
         ),
         centerTitle: true,
-        backgroundColor: Colors.white,
-        elevation: 0,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.share),
+            onPressed: _shareApp,
+          ),
+          IconButton(
+            icon: const Icon(Icons.settings),
+            onPressed: () {
+              Navigator.pushNamed(context, '/settings');
+            },
+          ),
+        ],
       ),
       body: _isLoading
           ? const SwapLoadingIndicator(size: 80)
